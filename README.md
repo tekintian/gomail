@@ -99,6 +99,7 @@ func main() {
 			sendCloser gomail.SendCloser // 这个是用来接收 dialer.Dial()返回的 SendCloser 注意这是一个接口,用于接收实现了这个接口的对象
 			err        error
 			open       = false // smtp链接是否就绪的标志定义
+			tchan = time.After(5 * time.Second)
 		)
 		for {
 			select {
@@ -125,7 +126,7 @@ func main() {
 					fmt.Println("Email send successfully!")
 				}
 			// 30秒后没有邮件发送,则关闭smtp链接
-			case <-time.After(5 * time.Second):
+			case <-tchan:
 				if open {
 					// 关闭smtp
 					if err := sendCloser.Close(); err != nil {
