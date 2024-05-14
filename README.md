@@ -41,6 +41,114 @@ https://godoc.org/gopkg.in/gomail.v2
 
 See the [examples in the documentation](https://godoc.org/gopkg.in/gomail.v2#example-package).
 
+~~~go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"gopkg.in/gomail.v2"
+)
+
+// The list of recipients.
+var list []struct {
+	Name    string
+	Address string
+}
+
+func main() {
+	// 创建一个管道ch 大小为 1
+	ch := make(chan *gomail.Message, 1)
+	chExit := make(chan int, 1)
+
+	// 准备要发送的信息
+	m := gomail.NewMessage()
+	// 单条信息
+	m.SetHeader("From", "alex@example.com")
+	m.SetHeader("To", "bob@example.com", "cora@example.com")
+	m.SetAddressHeader("Cc", "dan@example.com", "Dan")
+	m.SetHeader("Subject", "Hello!")
+	m.SetBody("text/html", "Hello <b>Bob</b> and <i>Cora</i>!")
+	m.Attach("/home/Alex/lolcat.jpg")
+	// 将要发送的信息放入管道
+	ch <- m
+
+	// 批量发送 这里的 list 是一个包含接收邮件的对象列表
+	// for _, r := range list {
+	// 	m.SetHeader("From", "no-reply@example.com")
+	// 	m.SetAddressHeader("To", r.Address, r.Name)
+	// 	m.SetHeader("Subject", "Newsletter #1")
+	// 	m.SetBody("text/html", fmt.Sprintf("Hello %s!", r.Name))
+
+	// 	if err := gomail.Send(s, m); err != nil {
+	// 		log.Printf("Could not send email to %q: %v", r.Address, err)
+	// 	}
+	// 	m.Reset()//重置发送信息
+	// }
+
+	// 关闭管道以停止邮件发送协程
+	close(ch)
+
+	go func(ch chan *gomail.Message, chExit chan int) {
+		// NewDialer returns a new SMTP Dialer. The given parameters are used to connect to the SMTP server.
+		dialer := gomail.NewDialer("smtp.qq.com", 587, "user", "123456")
+		// 变量定义
+		var (
+			sendCloser gomail.SendCloser // 这个是用来接收 dialer.Dial()返回的 SendCloser 注意这是一个接口,用于接收实现了这个接口的对象
+			err        error
+			open       = false // smtp链接是否就绪的标志定义
+		)
+		for {
+			select {
+			// 这里的管道读取 <-ch 会阻塞当前线程
+			case m, ok := <-ch:
+				if !ok { // 如果管道读取异常,则直接返回 结束运行
+					fmt.Println("退出协程")
+					chExit <- 1
+					return
+				}
+				if !open {
+					// Dial dials and authenticates to an SMTP server. The returned SendCloser should be closed when done using it.
+					if sendCloser, err = dialer.Dial(); err != nil {
+						fmt.Println("Smtp认证失败!", err) // smtp登录认证异常
+						chExit <- 1
+						return
+					}
+					open = true
+				}
+				// 发送邮件
+				if err := gomail.Send(sendCloser, m); err != nil {
+					log.Print(err)
+				} else {
+					fmt.Println("Email send successfully!")
+				}
+			// 30秒后没有邮件发送,则关闭smtp链接
+			case <-time.After(5 * time.Second):
+				if open {
+					// 关闭smtp
+					if err := sendCloser.Close(); err != nil {
+						fmt.Println("超时关闭")
+						chExit <- 1
+						return
+					}
+					open = false
+				}
+			}
+		}
+	}(ch, chExit)
+
+	for {
+		if _, ok := <-chExit; ok {
+			break // 协程退出,这里需要终止这里的for循环
+		}
+	}
+
+	fmt.Println("end....")
+}
+
+~~~
 
 ## FAQ
 
